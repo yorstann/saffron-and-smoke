@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Saffron &amp; Smoke — a tiny 3D bistro kitchen</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>🍳</text></svg>">
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #241a12; }
+  #gl { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  #status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+  #hud { position: fixed; inset: 0; pointer-events: none; font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif; color: #2b1c12; }
+  #hud[data-mode="title"] #tickets, #hud[data-mode="title"] #topbar, #hud[data-mode="title"] #held,
+  #hud[data-mode="title"] #hint, #hud[data-mode="title"] #prompt,
+  #hud[data-mode="end"] #tickets, #hud[data-mode="end"] #prompt, #hud[data-mode="end"] #hint,
+  #hud[data-mode="end"] #topbar, #hud[data-mode="end"] #held { display: none; }
+  #vignette { position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 42%, transparent 55%, rgba(43, 20, 8, 0.38) 100%); }
+
+  /* order tickets, top-left */
+  #tickets { position: absolute; top: 14px; left: 14px; display: flex; flex-direction: column; gap: 10px; width: 218px; }
+  .ticket { background: linear-gradient(180deg, #fffaf0, #fdf1da); border-radius: 6px; padding: 9px 11px 10px; box-shadow: 0 4px 14px rgba(30, 15, 5, 0.35); border-top: 5px solid #c8452c; transform: rotate(-0.6deg); }
+  .ticket:nth-child(2n) { transform: rotate(0.5deg); }
+  .ticket.urgent { border-top-color: #8f1f14; animation: shake 0.5s infinite alternate; }
+  .ticket.match { outline: 3px solid #77b255; }
+  @keyframes shake { from { margin-left: 0; } to { margin-left: 2px; } }
+  .ticket h3 { margin: 0 0 2px; font-family: Georgia, "Times New Roman", serif; font-size: 16.5px; letter-spacing: 0.2px; display: flex; justify-content: space-between; }
+  .ticket h3 .price { color: #b4762a; font-family: inherit; }
+  .ticket .parts { font-size: 11.5px; line-height: 1.45; color: #6b4c30; }
+  .ticket .parts .done { color: #4d7c3a; font-weight: 700; }
+  .patience { height: 6px; border-radius: 3px; background: #e8dcc4; margin-top: 6px; overflow: hidden; }
+  .patience i { display: block; height: 100%; border-radius: 3px; background: #77b255; transition: width 0.2s linear; }
+  .patience i.mid { background: #e8963c; }
+  .patience i.low { background: #c8452c; }
+
+  /* top centre: the day clock and the till */
+  #topbar { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  #daywrap { width: 340px; background: rgba(30, 18, 10, 0.55); border-radius: 999px; padding: 5px 12px 7px; color: #fdf1da; text-align: center; box-shadow: 0 3px 10px rgba(0,0,0,0.3); }
+  #daylabel { font-family: Georgia, serif; font-size: 13px; letter-spacing: 2.5px; }
+  #daybar { height: 7px; border-radius: 4px; background: rgba(255, 250, 240, 0.25); margin-top: 4px; overflow: hidden; }
+  #dayfill { height: 100%; width: 100%; background: linear-gradient(90deg, #f5b93f, #e8963c); border-radius: 4px; }
+  #till { display: flex; gap: 10px; }
+  .pill { background: rgba(30, 18, 10, 0.55); color: #fdf1da; border-radius: 999px; padding: 5px 14px; font-size: 15px; font-weight: 700; letter-spacing: 0.4px; box-shadow: 0 3px 10px rgba(0,0,0,0.3); }
+  .pill b { color: #f5b93f; }
+  #combo.hot { color: #ffb03a; }
+
+  /* bottom centre: what E will do right now */
+  #prompt { position: absolute; bottom: 26px; left: 50%; transform: translateX(-50%); background: rgba(30, 18, 10, 0.72); color: #fffaf0; font-size: 16.5px; padding: 9px 18px; border-radius: 999px; box-shadow: 0 5px 16px rgba(0,0,0,0.4); white-space: nowrap; }
+  #prompt .key { display: inline-block; background: #fdf1da; color: #2b1c12; border-radius: 5px; padding: 0 7px; margin-right: 8px; font-weight: 800; box-shadow: 0 2px 0 #c9b894; }
+  #prompt:empty { display: none; }
+
+  /* bottom-right: what the chef is carrying */
+  #held { position: absolute; right: 16px; bottom: 22px; background: linear-gradient(180deg, #fffaf0, #fdf1da); border-radius: 8px; padding: 8px 14px; font-size: 14.5px; box-shadow: 0 4px 14px rgba(30,15,5,0.35); border-left: 5px solid #e8963c; }
+  #held:empty { display: none; }
+  #held small { display: block; font-size: 10.5px; letter-spacing: 1.6px; color: #a3805a; font-weight: 700; }
+
+  /* bottom-left: recipe hint for the selected ticket */
+  #hint { position: absolute; left: 16px; bottom: 22px; max-width: 300px; background: rgba(30, 18, 10, 0.66); color: #fdf1da; border-radius: 8px; padding: 9px 13px; font-size: 13px; line-height: 1.5; }
+  #hint:empty { display: none; }
+  #hint b { color: #f5b93f; }
+
+  /* centre announcements */
+  #toast { position: absolute; top: 19%; left: 50%; transform: translateX(-50%); font-family: Georgia, serif; font-size: 30px; font-weight: 700; color: #fff7e8; text-shadow: 0 3px 14px rgba(60, 25, 0, 0.65); opacity: 0; transition: opacity 0.25s; text-align: center; }
+  #toast.show { opacity: 1; }
+
+  /* overlays */
+  .overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; pointer-events: auto; }
+  .overlay.hidden { display: none; }
+  #titleOv { background: linear-gradient(180deg, rgba(36, 20, 8, 0.25), rgba(36, 20, 8, 0.55)); }
+  #titleOv h1 { font-family: Georgia, serif; font-size: 74px; margin: 0; color: #fff7e8; letter-spacing: 1px; text-shadow: 0 6px 30px rgba(60, 25, 0, 0.8); }
+  #titleOv h1 .amp { color: #f5b93f; font-style: italic; }
+  #titleOv .tag { color: #fdf1da; font-size: 19px; margin: 10px 0 4px; text-shadow: 0 2px 10px rgba(60,25,0,0.8); }
+  #titleOv .how { color: #f3e3c2; font-size: 14.5px; line-height: 1.65; margin: 12px 0 22px; text-shadow: 0 2px 8px rgba(60,25,0,0.9); }
+  .bigbtn { pointer-events: auto; cursor: pointer; border: 0; border-radius: 999px; background: linear-gradient(180deg, #e8963c, #c86a24); color: #fffaf0; font-family: Georgia, serif; font-size: 21px; font-weight: 700; padding: 13px 38px; box-shadow: 0 6px 20px rgba(60, 25, 0, 0.5), inset 0 2px 0 rgba(255,255,255,0.35); }
+  .bigbtn:hover { filter: brightness(1.08); }
+  #endOv { background: rgba(36, 20, 8, 0.55); }
+  .card { background: linear-gradient(180deg, #fffaf0, #fdf1da); border-radius: 14px; padding: 30px 46px 34px; box-shadow: 0 14px 44px rgba(20, 10, 0, 0.55); border-top: 8px solid #e8963c; max-width: 520px; }
+  .card h2 { font-family: Georgia, serif; margin: 0 0 4px; font-size: 36px; }
+  .card .stars { font-size: 44px; letter-spacing: 8px; color: #e8963c; margin: 6px 0 2px; }
+  .card .stars .off { color: #d8c9a8; }
+  .card p { margin: 6px 0 16px; font-size: 16.5px; line-height: 1.6; color: #5d4126; }
+  #pauseOv { background: rgba(36, 20, 8, 0.5); color: #fff7e8; }
+  #pauseOv h2 { font-family: Georgia, serif; font-size: 44px; margin: 0 0 8px; }
+</style>
+</head>
+<body>
+<canvas id="gl" aria-label="Saffron and Smoke: a 3D bistro kitchen game. Move the chef with WASD or the arrow keys, interact with E."></canvas>
+
+<div id="hud">
+  <div id="vignette"></div>
+  <div id="tickets"></div>
+  <div id="topbar">
+    <div id="daywrap">
+      <div id="daylabel">SERVICE — DAY 1</div>
+      <div id="daybar"><div id="dayfill"></div></div>
+    </div>
+    <div id="till">
+      <div class="pill">🪙 <b id="coins">0</b></div>
+      <div class="pill" id="combo">COMBO ×1</div>
+      <div class="pill">🍽 <b id="served">0</b></div>
+    </div>
+  </div>
+  <div id="toast"></div>
+  <div id="hint"></div>
+  <div id="held"></div>
+  <div id="prompt"></div>
+
+  <div class="overlay" id="titleOv">
+    <h1>Saffron <span class="amp">&amp;</span> Smoke</h1>
+    <p class="tag">A tiny 3D bistro, one chef, and a lunch rush that will not wait.</p>
+    <p class="how">
+      <b>WASD / arrows</b> to run the kitchen &nbsp;·&nbsp; <b>E</b> (hold to chop) to cook<br>
+      Grab ingredients, chop, grill, bake, assemble — serve each ticket before patience runs out.<br>
+      Fast serves build your <b>combo</b>; burnt food goes in the bin.
+    </p>
+    <button class="bigbtn" id="playBtn">Start service</button>
+  </div>
+
+  <div class="overlay hidden" id="endOv">
+    <div class="card">
+      <h2>Service over!</h2>
+      <div class="stars" id="stars"></div>
+      <p id="endStats"></p>
+      <button class="bigbtn" id="againBtn">Cook another day</button>
+    </div>
+  </div>
+
+  <div class="overlay hidden" id="pauseOv">
+    <h2>Paused</h2>
+    <p>Press P or Esc to get back to the stove.</p>
+  </div>
+</div>
+
+<p id="status" role="status" aria-live="polite"></p>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
